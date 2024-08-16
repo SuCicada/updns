@@ -11,6 +11,11 @@ use crate::{HOSTS, PROXY, TIMEOUT};
 async fn get_answer(domain: &str, query: QueryType) -> Option<DnsRecord> {
     info!("get_answer: {} {:?}",domain,query);
     info!("get hosts: {:?}",HOSTS.read().await);
+    // let  hosts_read = HOSTS.read().await;//.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    // for (host, ip) in HOSTS.read().await.iter() {
+    //     println!("{}    {}", host.to_string(), ip);
+    // }
+    
     if let Some(ip) = HOSTS.read().await.get(domain) {
         match query {
             QueryType::A => {
@@ -27,6 +32,18 @@ async fn get_answer(domain: &str, query: QueryType) -> Option<DnsRecord> {
                     return Some(DnsRecord::AAAA {
                         domain: domain.to_string(),
                         addr: *addr,
+                        ttl: 3600,
+                    });
+                }else { 
+                    return Some(DnsRecord::SOA {
+                        domain: domain.to_string(),
+                        mname: "gina.ns.cloudflare.com".to_string(),
+                        rname: "dns.cloudflare.com".to_string(),
+                        serial: 2348788305,
+                        refresh: 10000,
+                        retry: 2400,
+                        expire: 604800,
+                        minimum: 1800,
                         ttl: 3600,
                     });
                 }

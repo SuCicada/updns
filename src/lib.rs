@@ -419,6 +419,17 @@ pub enum DnsRecord {
         addr: Ipv6Addr,
         ttl: u32,
     }, // 28
+    SOA {
+        domain: String,
+        mname: String,
+        rname: String,
+        serial: u32,
+        refresh: u32,
+        retry: u32,
+        expire: u32,
+        minimum: u32,
+        ttl: u32,
+    }, // 6
 }
 
 impl DnsRecord {
@@ -607,7 +618,40 @@ impl DnsRecord {
                     buffer.write_u16(*octet)?;
                 }
             }
+            DnsRecord::SOA {
+                ref domain,
+                ref mname,
+                ref rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+                ttl,
+            } => {
+                buffer.write_qname(domain)?;
+                buffer.write_u16(6)?;
+                buffer.write_u16(1)?;
+                buffer.write_u32(ttl)?;
+
+                let pos = buffer.pos();
+                buffer.write_u16(0)?;
+
+                buffer.write_qname(mname)?;
+                buffer.write_qname(rname)?;
+                buffer.write_u32(serial)?;
+                buffer.write_u32(refresh)?;
+                buffer.write_u32(retry)?;
+                buffer.write_u32(expire)?;
+                buffer.write_u32(minimum)?;
+
+                let size = buffer.pos() - (pos + 2);
+                buffer.set_u16(pos, size as u16)?;
+            }
             DnsRecord::UNKNOWN { .. } => {
+                logs::warn!("Skipping record: {:?}", self);
+            }
+            _ => {
                 logs::warn!("Skipping record: {:?}", self);
             }
         }
