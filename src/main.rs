@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod matcher;
 mod watch;
+mod handler;
 
 use cli::{parse_args, Args, RunType};
 use config::{Config, Hosts, MultipleInvalid, Parser};
@@ -15,6 +16,8 @@ use std::{
     process::Command,
     time::Duration,
 };
+use env_logger;
+use log::LevelFilter;
 use tokio::{
     io::{Error, ErrorKind, Result},
     net::UdpSocket,
@@ -23,11 +26,14 @@ use tokio::{
 };
 use updns::*;
 use watch::Watch;
+use std::io::Write;
+use chrono::Local;
+use crate::handler::{handle, proxy}; // 引入 chrono 的 Local
 
 const CONFIG_FILE: [&str; 2] = [".updns", "config"];
 const WATCH_INTERVAL: Duration = Duration::from_millis(5000);
 const DEFAULT_BIND: &str = "0.0.0.0:53";
-const DEFAULT_PROXY: [&str; 2] = ["8.8.8.8:53", "1.1.1.1:53"];
+const DEFAULT_PROXY: [&str; 1] = ["8.8.8.8:53"];//, "1.1.1.1:53"];
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(2000);
 
 lazy_static! {
@@ -48,6 +54,22 @@ macro_rules! exit {
 
 #[tokio::main]
 async fn main() {
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            let now = Local::now();
+            let time_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
+            writeln!(
+                buf,
+                "{}:{} - [{}] - {} - {}",
+                record.file().unwrap_or("<unknown file>"),
+                record.line().unwrap_or(0),
+                time_str,
+                record.level(),
+                record.args()
+            )
+        })
+        .filter(None, LevelFilter::Info)
+        .init();
     let Args { path, run } = parse_args();
     match run {
         RunType::AddRecord { ip, host } => {
@@ -93,7 +115,8 @@ async fn main() {
             let mut config = force_get_config(&path).await;
             if config.bind.is_empty() {
                 warn!("Will bind the default address '{}'", DEFAULT_BIND);
-                config.bind.push(DEFAULT_BIND.parse().unwrap());
+                let a = DEFAULT_BIND.parse().unwrap();
+                config.bind.push(a);
             }
             if config.proxy.is_empty() {
                 warn!(
@@ -184,7 +207,7 @@ async fn run_server(addr: SocketAddr) {
                 continue;
             }
         };
-
+        info!("Received {} bytes from {}", len, src);
         let res = match handle(req, len).await {
             Ok(data) => data,
             Err(err) => {
@@ -192,6 +215,7 @@ async fn run_server(addr: SocketAddr) {
                 continue;
             }
         };
+        // info!("Replying to '{}' with {:?} ", &src, String::from_utf8(res.clone()));
 
         if let Err(err) = socket.send_to(&res, &src).await {
             error!("Replying to '{}' failed {:?}", &src, err);
@@ -199,7 +223,8 @@ async fn run_server(addr: SocketAddr) {
     }
 }
 
-async fn proxy(buf: &[u8]) -> Result<Vec<u8>> {
+async fn proxy1(buf: &[u8]) -> Result<Vec<u8>> {
+    info!("proxy: {:?}", buf);
     let proxy = PROXY.read().await;
     let duration = *TIMEOUT.read().await;
 
@@ -214,6 +239,7 @@ async fn proxy(buf: &[u8]) -> Result<Vec<u8>> {
         })
         .await?;
 
+        info!("proxy: {:?}", data);
         match data {
             Ok(data) => {
                 return Ok(data);
@@ -230,7 +256,7 @@ async fn proxy(buf: &[u8]) -> Result<Vec<u8>> {
     ))
 }
 
-async fn get_answer(domain: &str, query: QueryType) -> Option<DnsRecord> {
+async fn get_answer1(domain: &str, query: QueryType) -> Option<DnsRecord> {
     if let Some(ip) = HOSTS.read().await.get(domain) {
         match query {
             QueryType::A => {
@@ -257,7 +283,7 @@ async fn get_answer(domain: &str, query: QueryType) -> Option<DnsRecord> {
     None
 }
 
-async fn handle(mut req: BytePacketBuffer, len: usize) -> Result<Vec<u8>> {
+async fn handle1(mut req: BytePacketBuffer, len: usize) -> Result<Vec<u8>> {
     let mut request = DnsPacket::from_buffer(&mut req)?;
 
     let query = match request.questions.get(0) {
@@ -268,9 +294,12 @@ async fn handle(mut req: BytePacketBuffer, len: usize) -> Result<Vec<u8>> {
     info!("{} {:?}", query.name, query.qtype);
 
     // Whether to proxy
-    let answer = match get_answer(&query.name, query.qtype).await {
+    let answer = match get_answer1(&query.name, query.qtype).await {
         Some(record) => record,
-        None => return proxy(&req.buf[..len]).await,
+        None => return Err(Error::new(
+            ErrorKind::Other,
+            "Proxy server failed to proxy request",
+        ))?,
     };
 
     request.header.recursion_desired = true;

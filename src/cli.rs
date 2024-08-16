@@ -61,11 +61,11 @@ pub fn parse_args() -> Args {
 
     let level = matches.value_of("log").unwrap();
 
-    Logs::new()
-        .target(crate_name!())
-        .level_from_str(level)
-        .unwrap()
-        .init();
+    // Logs::new()
+    //     .target(crate_name!())
+    //     .level_from_str(level)
+    //     .unwrap()
+    //     .init();
 
     let path = match matches.value_of("config") {
         Some(s) => PathBuf::from(s),
