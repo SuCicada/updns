@@ -101,7 +101,7 @@ impl Hosts {
 
     fn push(&mut self, record: (Matcher, IpAddr)) {
         info!("get hosts: {:?}",record);
-        
+
         self.record.push(record);
     }
 

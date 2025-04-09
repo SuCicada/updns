@@ -1,21 +1,19 @@
-use std::io::{Error, ErrorKind};
-use std::net::{IpAddr};
-use log::{error, info};
-use tokio::time::timeout;
-use tokio::{io::Result,
-            net::UdpSocket,
-};
-use updns::{BytePacketBuffer, DnsPacket, DnsRecord, QueryType};
 use crate::{HOSTS, PROXY, TIMEOUT};
+use log::{error, info};
+use std::io::{Error, ErrorKind};
+use std::net::IpAddr;
+use tokio::time::timeout;
+use tokio::{io::Result, net::UdpSocket};
+use updns::{BytePacketBuffer, DnsPacket, DnsRecord, QueryType};
 
 async fn get_answer(domain: &str, query: QueryType) -> Option<DnsRecord> {
-    info!("get_answer: {} {:?}",domain,query);
-    info!("get hosts: {:?}",HOSTS.read().await);
+    info!("get_answer: {} {:?}", domain, query);
+    info!("get hosts: {:?}", HOSTS.read().await);
     // let  hosts_read = HOSTS.read().await;//.iter().map(|(k, v)| (k.clone(), *v)).collect();
     // for (host, ip) in HOSTS.read().await.iter() {
     //     println!("{}    {}", host.to_string(), ip);
     // }
-    
+
     if let Some(ip) = HOSTS.read().await.get(domain) {
         match query {
             QueryType::A => {
@@ -34,7 +32,7 @@ async fn get_answer(domain: &str, query: QueryType) -> Option<DnsRecord> {
                         addr: *addr,
                         ttl: 3600,
                     });
-                }else { 
+                } else {
                     return Some(DnsRecord::SOA {
                         domain: domain.to_string(),
                         mname: "gina.ns.cloudflare.com".to_string(),
@@ -68,10 +66,12 @@ pub async fn handle(mut req: BytePacketBuffer, len: usize) -> Result<Vec<u8>> {
     let answer = match get_answer(&query.name, query.qtype).await {
         Some(record) => record,
         // None => return proxy(&req.buf[..len]).await,
-        None => return Err(Error::new(
-            ErrorKind::Other,
-            "Proxy server failed to proxy request",
-        ))?,
+        None => {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Proxy server failed to proxy request",
+            ))?
+        }
     };
 
     info!("answer: {:?}", answer);
@@ -87,7 +87,6 @@ pub async fn handle(mut req: BytePacketBuffer, len: usize) -> Result<Vec<u8>> {
     Ok(data.to_vec())
 }
 
-
 pub async fn proxy(buf: &[u8]) -> Result<Vec<u8>> {
     info!("proxy: {:?}", buf);
     let proxy = PROXY.read().await;
@@ -101,7 +100,8 @@ pub async fn proxy(buf: &[u8]) -> Result<Vec<u8>> {
             let mut res = [0; 512];
             let len = socket.recv(&mut res).await?;
             Ok(res[..len].to_vec())
-        }).await?;
+        })
+        .await?;
 
         info!("proxy: {:?}", data);
         match data {
